@@ -1,0 +1,23 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+httpx
+GitPython
+ruff
+black
+celery
+redis
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+
+google-generativeai
+tenacity
+
+# Testing
+pytest
+pytest-mock
+pytest-asyncio
+python-dotenv
+pytest-dotenv

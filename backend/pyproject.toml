@@ -1,0 +1,28 @@
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "UP", # pyupgrade
+    "PL", # Pylint
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "ARG", # flake8-unused-arguments
+    "N",  # pep8-naming
+]
+ignore = [
+    "E501", # line too long, handled by black
+    "B008", # Do not perform function call `Depends` in argument defaults
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]

@@ -1,0 +1,223 @@
+/* General App Styles */
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.App {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+/* Form Styles */
+form {
+  margin: 20px 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+input[type="text"] {
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  font-size: 16px;
+  width: 400px;
+}
+
+button {
+  padding: 10px 20px;
+  border-radius: 5px;
+  border: none;
+  background-color: #61dafb;
+  color: #282c34;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: #21a1f1;
+}
+
+/* Message and Loading Styles */
+.success-message {
+  color: #4CAF50;
+  margin-top: 20px;
+}
+
+.error-message {
+  color: #f44336;
+  margin-top: 20px;
+}
+
+.loading-indicator {
+  margin: 20px 0;
+  font-style: italic;
+  color: #61dafb;
+}
+
+/* Repository List Styles */
+.repository-list {
+  margin-top: 40px;
+  width: 80%;
+  max-width: 800px;
+  background-color: #3a3f47;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.repository-list h2 {
+  color: #61dafb;
+  margin-bottom: 20px;
+}
+
+.repository-list ul {
+  list-style: none;
+  padding: 0;
+}
+
+.repository-list li {
+  background-color: #282c34;
+  margin-bottom: 10px;
+  padding: 15px;
+  border-radius: 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.repository-list li:hover {
+  background-color: #4a5058;
+}
+
+.repository-list li.selected-repo {
+  border: 2px solid #61dafb;
+  background-color: #4a5058;
+}
+
+.repository-list li a {
+  color: #61dafb;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.repository-list li a:hover {
+  text-decoration: underline;
+}
+
+/* Analysis Results & History Styles */
+.analysis-results {
+  margin-top: 40px;
+  width: 80%;
+  max-width: 800px;
+  background-color: #3a3f47;
+  padding: 20px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.analysis-results h2 {
+  color: #61dafb;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.analysis-card {
+  background-color: #282c34;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+}
+
+.analysis-card h3, .analysis-card h4 {
+  color: #61dafb;
+  margin-top: 0;
+}
+
+.analysis-card ul {
+  list-style: inside;
+  padding-left: 20px;
+}
+
+.analysis-history {
+  margin-top: 30px;
+  border-top: 1px solid #4a5058;
+  padding-top: 20px;
+}
+
+.analysis-history h4 {
+  color: #61dafb;
+  margin-top: 0;
+}
+
+.analysis-history ul {
+  list-style: none;
+  padding: 0;
+}
+
+.analysis-history li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+input[type="checkbox"] {
+  cursor: pointer;
+}
+
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+/* Comparison Table Styles */
+.analysis-comparison {
+  margin-top: 30px;
+  border-top: 1px solid #4a5058;
+  padding-top: 20px;
+}
+
+.analysis-comparison h3 {
+  color: #61dafb;
+  margin-top: 0;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+}
+
+.comparison-table th, .comparison-table td {
+  border: 1px solid #4a5058;
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.comparison-table th {
+  background-color: #282c34;
+  color: #61dafb;
+}
+
+.comparison-table td ul {
+  margin: 0;
+  padding-left: 20px;
+}

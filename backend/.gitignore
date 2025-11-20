@@ -1,0 +1,17 @@
+# Local data
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE files
+.idea/
+.vscode/
+
+# Environment files
+venv/
+.env
+
+# Database files
+sql_app.db
