@@ -1,139 +1,250 @@
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
-from src.db.database import Base
-from src.db.models import AnalysisResult, Repository, User
-from src.db import crud
-from src.core.enums import AnalysisStatus
+from src.db import crud, models
 from src.api.v1 import schemas
+from src.core.enums import AnalysisStatus
 
-# Setup in-memory SQLite for testing
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+def test_get_user_by_username(db_session: Session):
+    # Create a user to test with
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    # Test that we can retrieve the user
+    retrieved_user = crud.get_user_by_username(db_session, "testuser")
+    assert retrieved_user is not None
+    assert retrieved_user.username == "testuser"
+
+    # Test that a non-existent user is not found
+    retrieved_user = crud.get_user_by_username(db_session, "nonexistentuser")
+    assert retrieved_user is None
 
 
-@pytest.fixture(name="session")
-def session_fixture():
-    Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-        Base.metadata.drop_all(bind=engine)
+def test_create_and_get_repository(db_session: Session):
+    # Create a user to be the owner of the repository
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
 
-@pytest.fixture
-def test_user(session):
-    user = crud.create_user(session, username="testuser", hashed_password="hashedpassword")
-    return user
+    # Create a repository
+    repo_url = "https://github.com/test/repo"
+    repo_name = "test/repo"
+    created_repo = crud.create_repository(db_session, url=repo_url, name=repo_name, owner_id=user.id)
+    assert created_repo is not None
+    assert created_repo.url == repo_url
+    assert created_repo.name == repo_name
+    assert created_repo.owner_id == user.id
 
-@pytest.fixture
-def test_repository(session, test_user):
-    repo = crud.create_repository(session, url="https://github.com/test/repo", name="test/repo", owner_id=test_user.id)
-    return repo
+    # Retrieve the repository by URL
+    retrieved_repo = crud.get_repository_by_url(db_session, url=repo_url)
+    assert retrieved_repo is not None
+    assert retrieved_repo.id == created_repo.id
+    assert retrieved_repo.name == repo_name
 
-@pytest.fixture
-def test_analysis_result(session, test_repository):
-    analysis_data = schemas.AnalysisResultCreate(
-        repository_id=test_repository.id,
-        summary="Initial summary",
-        narrative="Initial narrative",
+    # Retrieve the repository by ID
+    retrieved_repo_by_id = crud.get_repository(db_session, repository_id=created_repo.id)
+    assert retrieved_repo_by_id is not None
+    assert retrieved_repo_by_id.id == created_repo.id
+    assert retrieved_repo_by_id.name == repo_name
+
+
+def test_get_repositories(db_session: Session):
+    # Create a user and some repositories
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    crud.create_repository(db_session, url="https://github.com/test/repo1", name="test/repo1", owner_id=user.id)
+    crud.create_repository(db_session, url="https://github.com/test/repo2", name="test/repo2", owner_id=user.id)
+
+    repositories = crud.get_repositories(db_session)
+    assert len(repositories) == 2
+
+
+def test_get_repositories_by_owner(db_session: Session):
+    # Create two users and some repositories
+    user1 = models.User(username="testuser1", hashed_password="testpassword")
+    user2 = models.User(username="testuser2", hashed_password="testpassword")
+    db_session.add_all([user1, user2])
+    db_session.commit()
+    db_session.refresh(user1)
+    db_session.refresh(user2)
+
+    crud.create_repository(db_session, url="https://github.com/test/repo1", name="test/repo1", owner_id=user1.id)
+    crud.create_repository(db_session, url="https://github.com/test/repo2", name="test/repo2", owner_id=user2.id)
+
+    repositories = crud.get_repositories_by_owner(db_session, owner_id=user1.id)
+    assert len(repositories) == 1
+    assert repositories[0].owner_id == user1.id
+
+
+def test_create_and_get_analysis_result(db_session: Session):
+    # Create a user and a repository
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
+
+    # Create an analysis result
+    analysis_create = schemas.AnalysisResultCreate(
+        repository_id=repo.id,
+        status=AnalysisStatus.PENDING,
+        summary="Test Summary",
+        narrative="Test Narrative",
         file_count=10,
         commit_count=5,
+        total_lines=100,
         languages={"Python": 100},
-        tech_stack=["Python"],
-        open_issues_count=2,
-        open_pull_requests_count=1,
-        contributors=[{"login": "contributor1"}],
-        report_url="http://example.com/report",
-        status=AnalysisStatus.PENDING
+        open_issues_count=1,
+        open_pull_requests_count=2,
+        contributors=[{"name": "test"}],
+        tech_stack=["test"],
+        report_url="http://test.com"
     )
-    result = crud.create_analysis_result(session, analysis=analysis_data)
-    return result
+    created_analysis = crud.create_analysis_result(db_session, analysis=analysis_create)
+    assert created_analysis is not None
+    assert created_analysis.repository_id == repo.id
+    assert created_analysis.summary == "Test Summary"
 
+    # Retrieve the analysis result
+    retrieved_analysis = crud.get_analysis_result(db_session, analysis_id=created_analysis.id)
+    assert retrieved_analysis is not None
+    assert retrieved_analysis.id == created_analysis.id
+    assert retrieved_analysis.summary == "Test Summary"
 
-# Helper function for create_user since it's not in crud.py, but used by test_user fixture
-def create_user(db: Session, username: str, hashed_password: str):
-    db_user = User(username=username, hashed_password=hashed_password)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-crud.create_user = create_user # Monkey patch crud to include create_user for testing fixtures
+def test_get_analysis_results_for_repository(db_session: Session):
+    # Create a user and a repository
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
 
-
-def test_create_repository(session, test_user):
-    repo = crud.create_repository(session, url="https://github.com/new/repo", name="new/repo", owner_id=test_user.id)
-    assert repo.id is not None
-    assert repo.url == "https://github.com/new/repo"
-    assert repo.name == "new/repo"
-    assert repo.owner_id == test_user.id
-    assert repo.status == AnalysisStatus.PENDING
-
-def test_get_repository_by_url(session, test_repository):
-    repo = crud.get_repository_by_url(session, url="https://github.com/test/repo")
-    assert repo.id == test_repository.id
-
-def test_get_repositories(session, test_repository):
-    repos = crud.get_repositories(session)
-    assert len(repos) == 1
-    assert repos[0].id == test_repository.id
-
-def test_get_repository(session, test_repository):
-    repo = crud.get_repository(session, repository_id=test_repository.id)
-    assert repo.id == test_repository.id
-
-def test_create_analysis_result(session, test_repository):
-    analysis_data = schemas.AnalysisResultCreate(
-        repository_id=test_repository.id,
-        summary="Another summary",
-        narrative="Another narrative",
+    # Create two analysis results for the repository
+    analysis_create1 = schemas.AnalysisResultCreate(
+        repository_id=repo.id,
+        status=AnalysisStatus.PENDING,
+        summary="Test Summary 1",
+        narrative="Test Narrative 1",
+        file_count=10,
+        commit_count=5,
+        total_lines=100,
+        languages={"Python": 100},
+        open_issues_count=1,
+        open_pull_requests_count=2,
+        contributors=[{"name": "test"}],
+        tech_stack=["test"],
+        report_url="http://test.com"
+    )
+    crud.create_analysis_result(db_session, analysis=analysis_create1)
+    analysis_create2 = schemas.AnalysisResultCreate(
+        repository_id=repo.id,
+        status=AnalysisStatus.COMPLETED,
+        summary="Test Summary 2",
+        narrative="Test Narrative 2",
         file_count=20,
         commit_count=10,
-        languages={"Java": 50},
-        tech_stack=["Java"],
-        open_issues_count=3,
-        open_pull_requests_count=0,
-        contributors=[{"login": "contributor2"}],
-        report_url="http://example.com/another_report",
-        status=AnalysisStatus.COMPLETED
+        total_lines=200,
+        languages={"Python": 200},
+        open_issues_count=2,
+        open_pull_requests_count=4,
+        contributors=[{"name": "test2"}],
+        tech_stack=["test2"],
+        report_url="http://test2.com"
     )
-    result = crud.create_analysis_result(session, analysis=analysis_data)
-    assert result.id is not None
-    assert result.repository_id == test_repository.id
-    assert result.summary == "Another summary"
+    crud.create_analysis_result(db_session, analysis=analysis_create2)
 
-def test_get_analysis_results_for_repository(session, test_analysis_result):
-    results = crud.get_analysis_results_for_repository(session, repository_id=test_analysis_result.repository_id)
-    assert len(results) == 1
-    assert results[0].id == test_analysis_result.id
+    # Retrieve the analysis results for the repository
+    analysis_results = crud.get_analysis_results_for_repository(db_session, repository_id=repo.id)
+    assert len(analysis_results) == 2
 
-def test_get_analysis_result(session, test_analysis_result):
-    result = crud.get_analysis_result(session, analysis_id=test_analysis_result.id)
-    assert result.id == test_analysis_result.id
 
-def test_update_repository_status(session, test_repository):
-    updated_repo = crud.update_repository_status(session, repository_id=test_repository.id, new_status=AnalysisStatus.COMPLETED)
+def test_update_repository_status(db_session: Session):
+    # Create a user and a repository
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
+
+    # Update the status
+    updated_repo = crud.update_repository_status(db_session, repository_id=repo.id, new_status=AnalysisStatus.COMPLETED)
     assert updated_repo.status == AnalysisStatus.COMPLETED
 
-def test_update_analysis_result_summary(session, test_analysis_result):
-    updated_result = crud.update_analysis_result_summary(session, analysis_id=test_analysis_result.id, new_summary="Updated summary")
-    assert updated_result.summary == "Updated summary"
 
-def test_delete_repository(session, test_repository):
-    crud.delete_repository(session, repository_id=test_repository.id)
-    repo = crud.get_repository(session, repository_id=test_repository.id)
-    assert repo is None
+def test_update_analysis_result_summary(db_session: Session):
+    # Create a user, repository, and analysis result
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
+    analysis_create = schemas.AnalysisResultCreate(
+        repository_id=repo.id,
+        status=AnalysisStatus.PENDING,
+        summary="Test Summary",
+        narrative="Test Narrative",
+        file_count=10,
+        commit_count=5,
+        total_lines=100,
+        languages={"Python": 100},
+        open_issues_count=1,
+        open_pull_requests_count=2,
+        contributors=[{"name": "test"}],
+        tech_stack=["test"],
+        report_url="http://test.com"
+    )
+    analysis = crud.create_analysis_result(db_session, analysis=analysis_create)
 
-def test_delete_analysis_result(session, test_analysis_result):
-    crud.delete_analysis_result(session, analysis_id=test_analysis_result.id)
-    result = crud.get_analysis_result(session, analysis_id=test_analysis_result.id)
-    assert result is None
+    # Update the summary
+    updated_analysis = crud.update_analysis_result_summary(db_session, analysis_id=analysis.id, new_summary="New Summary")
+    assert updated_analysis.summary == "New Summary"
+
+
+def test_delete_repository(db_session: Session):
+    # Create a user and a repository
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
+
+    # Delete the repository
+    deleted_repo = crud.delete_repository(db_session, repository_id=repo.id)
+    assert deleted_repo is not None
+    assert crud.get_repository(db_session, repository_id=repo.id) is None
+
+
+def test_delete_analysis_result(db_session: Session):
+    # Create a user, repository, and analysis result
+    user = models.User(username="testuser", hashed_password="testpassword")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    repo = crud.create_repository(db_session, url="https://github.com/test/repo", name="test/repo", owner_id=user.id)
+    analysis_create = schemas.AnalysisResultCreate(
+        repository_id=repo.id,
+        status=AnalysisStatus.PENDING,
+        summary="Test Summary",
+        narrative="Test Narrative",
+        file_count=10,
+        commit_count=5,
+        total_lines=100,
+        languages={"Python": 100},
+        open_issues_count=1,
+        open_pull_requests_count=2,
+        contributors=[{"name": "test"}],
+        tech_stack=["test"],
+        report_url="http://test.com"
+    )
+    analysis = crud.create_analysis_result(db_session, analysis=analysis_create)
+
+    # Delete the analysis result
+    deleted_analysis = crud.delete_analysis_result(db_session, analysis_id=analysis.id)
+    assert deleted_analysis is not None
+    assert crud.get_analysis_result(db_session, analysis_id=analysis.id) is None

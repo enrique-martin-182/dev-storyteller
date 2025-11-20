@@ -8,6 +8,7 @@ from fastapi import (
 )
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from pydantic import HttpUrl # <-- Añadida esta línea
 
 from src.api.v1 import schemas
 from src.api.v1.endpoints.repositories import (
@@ -18,7 +19,8 @@ from src.api.v1.endpoints.repositories import (
 )
 from src.core.enums import AnalysisStatus
 from src.core.security import TokenData, get_current_user, get_current_websocket_user
-from src.db import models
+from src.db import models, crud
+from src.services import repository_service
 from src.db.database import get_db
 
 
@@ -46,192 +48,338 @@ def mock_connection_manager():
     return MagicMock()
 
 
-# Fixture for a mock repository object
-@pytest.fixture
-def mock_db_repo():
-    return schemas.Repository(
-        id=1,
-        url="https://github.com/test/repo",
-        name="test/repo",
-        owner_id=1,
-        status=AnalysisStatus.PENDING,
-        analysis_results=[], # This should be a list of AnalysisResult schemas if eager loaded
-        created_at=datetime.now() # Added created_at
-    )
 
-# Fixture for a mock repository DB model object
-@pytest.fixture
-def mock_db_model_repo():
-    # This is now a real model instance, not a mock
-    return models.Repository(
-        id=1,
-        url="https://github.com/test/repo",
-        name="test/repo",
-        owner_id=1, # Matches mock_current_user.id
-        status=AnalysisStatus.PENDING,
-        analysis_results=[],
-        created_at=datetime.now(),
-        updated_at=None
-    )
-
-# Fixture for a mock analysis result object
-@pytest.fixture
-def mock_db_analysis_result():
-    return schemas.AnalysisResult(
-        id=1,
-        repository_id=1,
-        status=AnalysisStatus.COMPLETED,
-        narrative="A test narrative.",
-        summary="A test summary.",
-        file_count=100,
-        commit_count=50,
-        languages={"Python": 80, "JavaScript": 20},
-        open_issues_count=5,
-        open_pull_requests_count=2,
-        contributors=[{"name": "dev1"}, {"name": "dev2"}],
-        tech_stack=["FastAPI", "SQLAlchemy"],
-        total_lines=5000,
-        report_url="http://example.com/report/1",
-        created_at=datetime.now()
-    )
 
 # Test cases for POST /
 @pytest.mark.asyncio
-async def test_create_repository_analysis_request_existing_repo(mock_repository_service, client, mock_db_repo):
-    mock_repository_service.get_repository_by_url.return_value = mock_db_repo
+async def test_create_repository_analysis_request_existing_repo(mocker, client):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository_by_url = mocker.patch.object(
+        repository_service, "get_repository_by_url", return_value=mock_repo_pydantic
+    )
     repo_create = schemas.RepositoryCreate(url="https://github.com/test/repo")
     response = client.post("/api/v1/repositories/", json={"url": str(repo_create.url)})
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["id"] == mock_db_repo.id
-    mock_repository_service.get_repository_by_url.assert_called_once_with(ANY, str(repo_create.url))
-    mock_repository_service.create_repository.assert_not_called()
+    assert response.json()["id"] == mock_repo_pydantic.id
+    mock_get_repository_by_url.assert_called_once_with(ANY, str(repo_create.url))
 
 @pytest.mark.asyncio
-async def test_create_repository_analysis_request_new_repo(mock_repository_service, client, mock_db_repo, mock_current_user):
-    mock_repository_service.get_repository_by_url.return_value = None
-    mock_repository_service.create_repository.return_value = mock_db_repo
+async def test_create_repository_analysis_request_new_repo(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/new_repo"), name="test/new_repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository_by_url = mocker.patch.object(
+        repository_service, "get_repository_by_url", return_value=None
+    )
+    mock_create_repository = mocker.patch.object(
+        repository_service, "create_repository", return_value=mock_repo_pydantic
+    )
     repo_create = schemas.RepositoryCreate(url="https://github.com/test/new_repo")
     response = client.post("/api/v1/repositories/", json={"url": str(repo_create.url)})
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.json()["id"] == mock_db_repo.id
-    mock_repository_service.get_repository_by_url.assert_called_once_with(ANY, str(repo_create.url))
-    mock_repository_service.create_repository.assert_called_once_with(
+    assert response.json()["id"] == mock_repo_pydantic.id
+    mock_get_repository_by_url.assert_called_once_with(ANY, str(repo_create.url))
+    mock_create_repository.assert_called_once_with(
         db=ANY, repo=repo_create, owner_id=mock_current_user.id
     )
 # Test cases for GET /
 @pytest.mark.asyncio
-async def test_read_repositories(mock_repository_service, client, mock_db_repo, mock_current_user):
-    mock_repository_service.get_repositories_by_owner.return_value = [mock_db_repo]
+async def test_read_repositories(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repositories_by_owner = mocker.patch.object(
+        repository_service, "get_repositories_by_owner", return_value=[mock_repo_pydantic]
+    )
     response = client.get("/api/v1/repositories/")
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()[0]["id"] == mock_db_repo.id
-    mock_repository_service.get_repositories_by_owner.assert_called_once_with(ANY, owner_id=mock_current_user.id, skip=0, limit=100)
+    assert response.json()[0]["id"] == mock_repo_pydantic.id
+    mock_get_repositories_by_owner.assert_called_once_with(ANY, owner_id=mock_current_user.id, skip=0, limit=100)
 
 @pytest.mark.asyncio
-async def test_read_repositories_empty(mock_repository_service, client, mock_current_user):
-    mock_repository_service.get_repositories_by_owner.return_value = []
+async def test_read_repositories_empty(mocker, client, mock_current_user):
+    mock_get_repositories_by_owner = mocker.patch.object(
+        repository_service, "get_repositories_by_owner", return_value=[]
+    )
     response = client.get("/api/v1/repositories/")
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == []
-    mock_repository_service.get_repositories_by_owner.assert_called_once_with(ANY, owner_id=mock_current_user.id, skip=0, limit=100)
+    mock_get_repositories_by_owner.assert_called_once_with(ANY, owner_id=mock_current_user.id, skip=0, limit=100)
 
 # Test cases for GET /{repository_id}
 @pytest.mark.asyncio
-async def test_read_repository_success(mock_repository_service, client, mock_db_model_repo, mock_db_repo, mock_current_user):
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/{mock_db_model_repo.id}")
+async def test_read_repository_success(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/{mock_repo_pydantic.id}")
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["id"] == mock_db_repo.id
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    assert response.json()["id"] == mock_repo_pydantic.id
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 @pytest.mark.asyncio
-async def test_read_repository_not_found(mock_repository_service, client):
-    mock_repository_service.get_repository.return_value = None
+async def test_read_repository_not_found(mocker, client):
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=None
+    )
     response = client.get("/api/v1/repositories/999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Repository not found"
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=999)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=999)
 
 @pytest.mark.asyncio
-async def test_read_repository_unauthorized(mock_repository_service, client, mock_db_model_repo, mock_current_user):
-    mock_db_model_repo.owner_id = 2 # Different owner
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/{mock_db_model_repo.id}")
+async def test_read_repository_unauthorized(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=2, # owner_id diferente
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/{mock_repo_pydantic.id}")
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json()["detail"] == "Not authorized to access this repository"
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 # Test cases for GET /{repository_id}/analysis
 @pytest.mark.asyncio
-async def test_read_repository_analysis_success(mock_repository_service, client, mock_db_model_repo, mock_db_analysis_result, mock_current_user):
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    mock_repository_service.get_analysis_results_for_repository.return_value = [mock_db_analysis_result]
-    response = client.get(f"/api/v1/repositories/{mock_db_model_repo.id}/analysis")
+async def test_read_repository_analysis_success(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    mock_get_analysis_results_for_repository = mocker.patch.object(
+        repository_service, "get_analysis_results_for_repository", return_value=[mock_analysis_result_pydantic]
+    )
+    response = client.get(f"/api/v1/repositories/{mock_repo_pydantic.id}/analysis")
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["analysis_results"][0]["id"] == mock_db_analysis_result.id
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
-    mock_repository_service.get_analysis_results_for_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    assert response.json()["analysis_results"][0]["id"] == mock_analysis_result_pydantic.id
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
+    mock_get_analysis_results_for_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 @pytest.mark.asyncio
-async def test_read_repository_analysis_repo_not_found(mock_repository_service, client):
-    mock_repository_service.get_repository.return_value = None
+async def test_read_repository_analysis_repo_not_found(mocker, client):
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=None
+    )
     response = client.get("/api/v1/repositories/999/analysis")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Repository not found"
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=999)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=999)
 
 @pytest.mark.asyncio
-async def test_read_repository_analysis_unauthorized(mock_repository_service, client, mock_db_model_repo, mock_current_user):
-    mock_db_model_repo.owner_id = 2 # Different owner
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/{mock_db_model_repo.id}/analysis")
+async def test_read_repository_analysis_unauthorized(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=2, # owner_id diferente
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/{mock_repo_pydantic.id}/analysis")
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json()["detail"] == "Not authorized to access this repository's analysis"
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 # Test cases for GET /analysis/{analysis_id}/narrative
 @pytest.mark.asyncio
-async def test_get_analysis_narrative_success(mock_repository_service, client, mock_db_model_repo, mock_db_analysis_result, mock_current_user):
-    mock_db_analysis_result.repository_id = mock_db_model_repo.id
-    mock_repository_service.get_analysis_result.return_value = mock_db_analysis_result
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/analysis/{mock_db_analysis_result.id}/narrative")
+async def test_get_analysis_narrative_success(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_analysis_result_pydantic.repository_id = mock_repo_pydantic.id
+    mock_get_analysis_result = mocker.patch.object(
+        crud, "get_analysis_result", return_value=mock_analysis_result_pydantic
+    )
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/analysis/{mock_analysis_result_pydantic.id}/narrative")
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == mock_db_analysis_result.narrative
-    mock_repository_service.get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_db_analysis_result.id)
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    assert response.json() == mock_analysis_result_pydantic.narrative
+    mock_get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_analysis_result_pydantic.id)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 @pytest.mark.asyncio
-async def test_get_analysis_narrative_analysis_not_found(mock_repository_service, client):
-    mock_repository_service.get_analysis_result.return_value = None
+async def test_get_analysis_narrative_analysis_not_found(mocker, client):
+    mock_get_analysis_result = mocker.patch.object(
+        crud, "get_analysis_result", return_value=None
+    )
     response = client.get("/api/v1/repositories/analysis/999/narrative")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Analysis result not found"
-    mock_repository_service.get_analysis_result.assert_called_once_with(ANY, analysis_id=999)
+    mock_get_analysis_result.assert_called_once_with(ANY, analysis_id=999)
 
 @pytest.mark.asyncio
-async def test_get_analysis_narrative_unauthorized(mock_repository_service, client, mock_db_model_repo, mock_db_analysis_result, mock_current_user):
-    mock_db_analysis_result.repository_id = mock_db_model_repo.id
-    mock_db_model_repo.owner_id = 2 # Different owner
-    mock_repository_service.get_analysis_result.return_value = mock_db_analysis_result
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/analysis/{mock_db_analysis_result.id}/narrative")
+async def test_get_analysis_narrative_unauthorized(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative="A test narrative.", summary="A test summary.",
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=2, # owner_id diferente
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_analysis_result_pydantic.repository_id = mock_repo_pydantic.id
+    mock_get_analysis_result = mocker.patch.object(
+        crud, "get_analysis_result", return_value=mock_analysis_result_pydantic
+    )
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/analysis/{mock_analysis_result_pydantic.id}/narrative")
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json()["detail"] == "Not authorized to access this analysis narrative"
-    mock_repository_service.get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_db_analysis_result.id)
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    mock_get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_analysis_result_pydantic.id)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 @pytest.mark.asyncio
-async def test_get_analysis_narrative_not_available(mock_repository_service, client, mock_db_model_repo, mock_db_analysis_result, mock_current_user):
-    mock_db_analysis_result.repository_id = mock_db_model_repo.id
-    mock_db_analysis_result.narrative = None # No narrative available
-    mock_repository_service.get_analysis_result.return_value = mock_db_analysis_result
-    mock_repository_service.get_repository.return_value = mock_db_model_repo
-    response = client.get(f"/api/v1/repositories/analysis/{mock_db_analysis_result.id}/narrative")
+async def test_get_analysis_narrative_not_available(mocker, client, mock_current_user):
+    # Crear instancias locales de Pydantic para este test
+    mock_analysis_result_pydantic = schemas.AnalysisResult(
+        id=1, repository_id=1, status=schemas.AnalysisStatus.COMPLETED,
+        narrative=None, summary="A test summary.", # narrative=None
+        file_count=100, commit_count=50, languages={"Python": 80, "JavaScript": 20},
+        open_issues_count=5, open_pull_requests_count=2,
+        contributors=[{"name": "dev1"}, {"name": "dev2"}],
+        tech_stack=["FastAPI", "SQLAlchemy"], total_lines=5000,
+        report_url="http://example.com/report/1", created_at=datetime.now()
+    )
+    mock_repo_pydantic = schemas.Repository(
+        id=1, url=HttpUrl("https://github.com/test/repo"), name="test/repo", owner_id=1,
+        status=schemas.AnalysisStatus.PENDING, analysis_results=[mock_analysis_result_pydantic],
+        created_at=datetime.now()
+    )
+
+    mock_analysis_result_pydantic.repository_id = mock_repo_pydantic.id
+    mock_get_analysis_result = mocker.patch.object(
+        crud, "get_analysis_result", return_value=mock_analysis_result_pydantic
+    )
+    mock_get_repository = mocker.patch.object(
+        repository_service, "get_repository", return_value=mock_repo_pydantic
+    )
+    response = client.get(f"/api/v1/repositories/analysis/{mock_analysis_result_pydantic.id}/narrative")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Narrative not available for this analysis result"
-    mock_repository_service.get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_db_analysis_result.id)
-    mock_repository_service.get_repository.assert_called_once_with(ANY, repository_id=mock_db_model_repo.id)
+    mock_get_analysis_result.assert_called_once_with(ANY, analysis_id=mock_analysis_result_pydantic.id)
+    mock_get_repository.assert_called_once_with(ANY, repository_id=mock_repo_pydantic.id)
 
 # Test cases for websocket /ws/status
 @pytest.mark.asyncio

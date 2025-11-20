@@ -21,7 +21,10 @@ class RepositoryAnalyzer:
         # and then get the tree_sha from there.
 
         # For simplicity, let's get the latest commit and its tree SHA
-        commits = await self.github_service.get_repository_commits(owner, repo)
+        try:
+            commits = await self.github_service.get_repository_commits(owner, repo)
+        except StopAsyncIteration:
+            commits = []
         if not commits:
             return [] # No commits, no file structure
 
@@ -49,7 +52,10 @@ class RepositoryAnalyzer:
         per_page = 30  # GitHub API default per_page is 30, max 100
 
         while len(simplified_commits) < num_commits:
-            commits_data = await self.github_service.get_repository_commits(owner, repo, per_page=per_page, page=page)
+            try:
+                commits_data = await self.github_service.get_repository_commits(owner, repo, per_page=per_page, page=page)
+            except StopAsyncIteration:
+                break # No more commits
             if not commits_data:
                 break # No more commits
 
@@ -86,15 +92,8 @@ class RepositoryAnalyzer:
         contributors = [c.get("login") for c in contributors_data]
 
         # Fetch commit history and count total commits
-        all_commits = []
-        page = 1
-        while True:
-            commits_page = await self.github_service.get_repository_commits(owner, repo_name, page=page)
-            if not commits_page:
-                break
-            all_commits.extend(commits_page)
-            page += 1
-        commit_count = len(all_commits)
+        commit_history = await self.get_commit_history(owner, repo_name)
+        commit_count = len(commit_history)
 
         # Fetch file structure and count total files
         file_structure = await self.get_file_structure(owner, repo_name)
@@ -116,7 +115,7 @@ class RepositoryAnalyzer:
             "open_pull_requests_count": len(pulls),
             "contributors": contributors,
             "file_structure": file_structure,
-            "commit_history": all_commits, # Store full commit history for narrative generation
+            "commit_history": commit_history, # Store simplified commit history
             "tech_stack": tech_stack,
         }
         return analysis
@@ -162,6 +161,16 @@ class RepositoryAnalyzer:
                             for dep_name in package_json.get(dep_type, {}):
                                 tech_stack.add(dep_name.split('/')[0]) # Add package name, remove scope if present
                     except json.JSONDecodeError:
+                        pass
+                elif file_name == "pyproject.toml":
+                    try:
+                        import toml
+                        pyproject = toml.loads(content)
+                        for dep_name in pyproject.get("tool", {}).get("poetry", {}).get("dependencies", {}):
+                            tech_stack.add(dep_name)
+                        for dep_name in pyproject.get("tool", {}).get("poetry", {}).get("dev-dependencies", {}):
+                            tech_stack.add(dep_name)
+                    except (ImportError, toml.TomlDecodeError):
                         pass
                 elif file_name == "requirements.txt":
                     for line in content.splitlines():

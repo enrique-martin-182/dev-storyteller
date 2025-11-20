@@ -39,8 +39,9 @@ jobs:
           black --check .
           ruff check .
       - name: Run Pytest (Backend)
-        working-directory: ./workspace/dev_storyteller/backend
-        run: pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}/workspace/dev_storyteller/backend
+        run: pytest --cov=src --cov-report=xml
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:

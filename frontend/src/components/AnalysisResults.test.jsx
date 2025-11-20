@@ -13,6 +13,11 @@ vi.mock('./AnalysisHistory', () => ({
   default: () => <div data-testid="analysis-history"></div>,
 }));
 
+// Mock the LanguageDistributionChart component
+vi.mock('./LanguageDistributionChart', () => ({
+  default: () => <div data-testid="language-distribution-chart"></div>,
+}));
+
 describe('AnalysisResults', () => {
   const mockSelectedRepo = { id: 1, name: 'test-repo' };
   const mockAnalysisResults = [

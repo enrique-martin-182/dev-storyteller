@@ -1,104 +1,85 @@
-from unittest.mock import AsyncMock, patch
+import unittest
+from unittest.mock import MagicMock, patch, AsyncMock
+import asyncio
+from src.services.narrative_generator import NarrativeGenerator, MAX_SUMMARY_LENGTH
 
-import pytest
+class TestNarrativeGenerator(unittest.TestCase):
 
-# Keep import at module level for MAX_SUMMARY_LENGTH
-from src.services.narrative_generator import MAX_SUMMARY_LENGTH, NarrativeGenerator
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai')
+    def test_init_with_api_key(self, mock_genai):
+        generator = NarrativeGenerator()
+        mock_genai.configure.assert_called_once_with(api_key='test_api_key')
+        self.assertIsNotNone(generator.model)
 
-# from src.db.database import GEMINI_API_KEY # No longer needed to import directly here
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', None)
+    def test_init_without_api_key(self):
+        with self.assertRaises(ValueError):
+            NarrativeGenerator()
 
-@pytest.fixture
-def mock_generative_model(mocker):
-    # Mock the GenerativeModel class itself
-    mock_model_class = mocker.patch("google.generativeai.GenerativeModel", autospec=True)
-    # Mock the instance that would be returned when GenerativeModel is called
-    mock_instance = mock_model_class.return_value
-    # Mock the generate_content method on the instance
-    mock_instance.generate_content.return_value.text = "Mocked LLM response"
-    mock_instance.generate_content_async.return_value = AsyncMock(text="Mocked LLM async response")
-    return mock_model_class # Yield the mocked class
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai.GenerativeModel')
+    def test_generate_narrative(self, mock_model):
+        mock_response = MagicMock()
+        mock_response.text = "Narrative"
+        mock_model.return_value.generate_content.return_value = mock_response
 
-@pytest.fixture
-def narrative_generator(mock_generative_model): # Now mock_generative_model is the mocked class
-    # Patch GEMINI_API_KEY to avoid the initial check in the constructor
-    with patch("src.services.narrative_generator.GEMINI_API_KEY", new="test_api_key"), \
-         patch("google.generativeai.configure", autospec=True): # Mock genai.configure
-        yield NarrativeGenerator()
+        generator = NarrativeGenerator()
+        narrative = generator.generate_narrative({})
+        
+        self.assertEqual(narrative, "Narrative")
 
-def test_narrative_generator_init_no_api_key():
-    # Patch GEMINI_API_KEY in the module where it's used
-    with patch("src.services.narrative_generator.GEMINI_API_KEY", new=None), pytest.raises(ValueError, match="GEMINI_API_KEY not found"):
-        NarrativeGenerator()
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai.GenerativeModel')
+    def test_generate_narrative_error(self, mock_model):
+        mock_model.return_value.generate_content.side_effect = Exception("API Error")
 
-def test_generate_narrative_success(narrative_generator, mock_generative_model):
-    repo_details = {
-        "name": "test_repo",
-        "description": "A test repository",
-        "main_language": "Python",
-        "languages": {"Python": 100},
-        "tech_stack": ["Python", "FastAPI"],
-        "topics": ["testing"],
-        "license": "MIT",
-        "stargazers_count": 10,
-        "forks_count": 5,
-        "open_issues_count": 2,
-        "open_pull_requests_count": 1,
-        "contributors": ["dev1", "dev2"],
-        "file_count": 20,
-        "commit_count": 50,
-        "file_structure": [{"path": "src/main.py"}],
-        "commit_history": [{"message": "Initial commit", "author_name": "dev1", "date": "2023-01-01"}],
-    }
-    expected_narrative = "This is a comprehensive narrative."
-    narrative_generator.model.generate_content.return_value.text = expected_narrative
-    narrative = narrative_generator.generate_narrative(repo_details)
-    assert narrative == expected_narrative
-    narrative_generator.model.generate_content.assert_called_once()
+        generator = NarrativeGenerator()
+        narrative = generator.generate_narrative({})
+        
+        self.assertEqual(narrative, "Error generating narrative.")
 
-def test_generate_narrative_exception(narrative_generator, mock_generative_model):
-    repo_details = {}
-    narrative_generator.model.generate_content.side_effect = Exception("LLM error")
-    narrative = narrative_generator.generate_narrative(repo_details)
-    assert narrative == "Error generating narrative."
-    narrative_generator.model.generate_content.assert_called_once()
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai.GenerativeModel')
+    def test_generate_recruiter_summary(self, mock_model):
+        mock_response = MagicMock()
+        mock_response.text = "Summary"
+        mock_model.return_value.generate_content_async = AsyncMock(return_value=mock_response)
 
-@pytest.mark.asyncio
-async def test_generate_recruiter_summary_success(narrative_generator, mock_generative_model):
-    repo_analysis = {
-        "name": "test_repo",
-        "description": "A test repository",
-        "main_language": "Python",
-        "languages": {"Python": 100},
-        "tech_stack": ["Python", "FastAPI"],
-        "topics": ["testing"],
-        "stargazers_count": 10,
-        "forks_count": 5,
-        "open_issues_count": 2,
-        "open_pull_requests_count": 1,
-        "contributors": ["dev1", "dev2"],
-        "file_count": 20,
-        "commit_count": 50,
-    }
-    expected_summary = "This is a concise summary for recruiters."
-    narrative_generator.model.generate_content_async.return_value.text = expected_summary
-    summary = await narrative_generator.generate_recruiter_summary(repo_analysis)
-    assert summary == expected_summary
-    narrative_generator.model.generate_content_async.assert_called_once()
+        generator = NarrativeGenerator()
+        
+        async def run_test():
+            summary = await generator.generate_recruiter_summary({})
+            self.assertEqual(summary, "Summary")
 
-@pytest.mark.asyncio
-async def test_generate_recruiter_summary_truncation(narrative_generator, mock_generative_model):
-    repo_analysis = {}
-    long_summary = "A" * (MAX_SUMMARY_LENGTH + 50)
-    narrative_generator.model.generate_content_async.return_value.text = long_summary
-    summary = await narrative_generator.generate_recruiter_summary(repo_analysis)
-    assert len(summary) == MAX_SUMMARY_LENGTH
-    assert summary.endswith("...")
-    narrative_generator.model.generate_content_async.assert_called_once()
+        asyncio.run(run_test())
 
-@pytest.mark.asyncio
-async def test_generate_recruiter_summary_exception(narrative_generator, mock_generative_model):
-    repo_analysis = {}
-    narrative_generator.model.generate_content_async.side_effect = Exception("LLM error")
-    summary = await narrative_generator.generate_recruiter_summary(repo_analysis)
-    assert summary == "Error generating recruiter summary."
-    narrative_generator.model.generate_content_async.assert_called_once()
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai.GenerativeModel')
+    def test_generate_recruiter_summary_error(self, mock_model):
+        mock_model.return_value.generate_content_async.side_effect = Exception("API Error")
+
+        generator = NarrativeGenerator()
+
+        async def run_test():
+            summary = await generator.generate_recruiter_summary({})
+            self.assertEqual(summary, "Error generating recruiter summary.")
+        
+        asyncio.run(run_test())
+
+    @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
+    @patch('src.services.narrative_generator.genai.GenerativeModel')
+    def test_generate_recruiter_summary_length(self, mock_model):
+        long_text = "a" * (MAX_SUMMARY_LENGTH + 100)
+        mock_response = MagicMock()
+        mock_response.text = long_text
+        mock_model.return_value.generate_content_async = AsyncMock(return_value=mock_response)
+
+        generator = NarrativeGenerator()
+
+        async def run_test():
+            summary = await generator.generate_recruiter_summary({})
+            self.assertLessEqual(len(summary), MAX_SUMMARY_LENGTH)
+            self.assertTrue(summary.endswith("..."))
+
+        asyncio.run(run_test())

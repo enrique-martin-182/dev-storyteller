@@ -90,8 +90,17 @@ def clone_and_analyze_repository(repo_id: int, db: Session = None):
 
     except Exception as e:
         repo.status = AnalysisStatus.FAILED
-        repo.summary = f"An unexpected error occurred during analysis: {e}" # Include exception message
         logging.error(f"Error analyzing {repo.url}: {e}")
+        
+        # Create or update analysis result with error summary
+        analysis_result = db.query(models.AnalysisResult).filter(models.AnalysisResult.repository_id == repo.id).first()
+        if not analysis_result:
+            analysis_result = models.AnalysisResult(repository_id=repo.id, status=AnalysisStatus.FAILED)
+            db.add(analysis_result)
+        
+        analysis_result.summary = f"An unexpected error occurred during analysis: {e}"
+        analysis_result.status = AnalysisStatus.FAILED
+        
         asyncio.run(_broadcast_status_update(repo.id, repo.status))
     finally:
         repo.updated_at = func.now()

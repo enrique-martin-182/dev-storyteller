@@ -1,10 +1,11 @@
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, ws } from 'msw';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = '';
 
 export const handlers = [
   // Mock for GET /api/v1/repositories/
-  http.get(`${API_BASE_URL}/repositories/`, () => {
+  http.get(`${API_BASE_URL}/api/v1/repositories/`, () => {
+    console.log('Intercepted GET /api/v1/repositories/');
     return HttpResponse.json([
       { id: 1, name: 'mock-repo-1', url: 'http://github.com/mock/repo-1', status: 'completed' },
       { id: 2, name: 'mock-repo-2', url: 'http://github.com/mock/repo-2', status: 'pending' },
@@ -12,7 +13,7 @@ export const handlers = [
   }),
 
   // Mock for GET /api/v1/repositories/:repoId/analysis
-  http.get(`${API_BASE_URL}/repositories/:repoId/analysis`, ({ params }) => {
+  http.get(`${API_BASE_URL}/api/v1/repositories/:repoId/analysis`, ({ params }) => {
     const { repoId } = params;
     if (repoId === '1') {
       return HttpResponse.json([
@@ -30,7 +31,7 @@ export const handlers = [
   }),
 
   // Mock for POST /api/v1/repositories/
-  http.post(`${API_BASE_URL}/repositories/`, async ({ request }) => {
+  http.post(`${API_BASE_URL}/api/v1/repositories/`, async ({ request }) => {
     const newRepo = await request.json();
     return HttpResponse.json(
       {
@@ -41,5 +42,12 @@ export const handlers = [
       },
       { status: 200 }
     );
+  }),
+
+  // Mock for WebSocket connections
+  ws.link(`${API_BASE_URL}/api/v1/ws/status`, (server) => {
+    server.on('connection', (client) => {
+      client.send(JSON.stringify({ id: 1, status: 'completed' }));
+    });
   }),
 ];

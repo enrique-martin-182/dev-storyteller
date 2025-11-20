@@ -1,7 +1,17 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest'; // Import vi
 import App from './App';
 import { AppProvider } from '../../src/contexts/AppContext'; // Correct path
+
+// Mock the WebSocket constructor globally for tests
+const mockWebSocket = vi.fn(() => ({
+  send: vi.fn(),
+  close: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+}));
+
+vi.stubGlobal('WebSocket', mockWebSocket);
 
 describe('App', () => {
   it('renders the main heading and fetches repositories', async () => {

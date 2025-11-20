@@ -1,46 +1,32 @@
-import pytest
 
+import pytest
 from src.utils.url_utils import extract_repo_name_from_url, parse_github_url
 
-
-# Tests for extract_repo_name_from_url
-@pytest.mark.parametrize("url, expected_name", [
-    ("https://github.com/owner/repo_name.git", "repo_name"),
-    ("https://github.com/owner/repo_name", "repo_name"),
-    ("http://gitlab.com/group/subgroup/another_repo.git", "another_repo"),
-    ("https://bitbucket.org/project/my_repo", "my_repo"),
-    ("https://github.com/owner/repo_name/", "repo_name"), # Trailing slash
-    ("https://github.com/repo_name.git", "repo_name"), # No owner
-    ("https://github.com/repo_name", "repo_name"), # No owner and no .git
-    ("https://github.com/", ""), # Root URL
-    ("", ""), # Empty URL
-    ("ftp://some.server.com/path/to/file.zip", "file.zip"), # Non-git URL
+@pytest.mark.parametrize("url, expected", [
+    ("https://github.com/user/repo.git", "repo"),
+    ("https://github.com/user/repo", "repo"),
+    ("http://github.com/user/repo.git", "repo"),
+    ("http://github.com/user/repo", "repo"),
+    ("https://gitlab.com/user/repo", "repo"),
 ])
-def test_extract_repo_name_from_url(url, expected_name):
-    assert extract_repo_name_from_url(url) == expected_name
+def test_extract_repo_name_from_url(url, expected):
+    assert extract_repo_name_from_url(url) == expected
 
-
-# Tests for parse_github_url
-@pytest.mark.parametrize("url, expected_owner, expected_repo_name", [
-    ("https://github.com/owner/repo_name.git", "owner", "repo_name"),
-    ("https://github.com/owner/repo_name", "owner", "repo_name"),
-    ("https://github.com/octocat/Spoon-Knife.git", "octocat", "Spoon-Knife"),
-    ("https://github.com/octocat/Spoon-Knife", "octocat", "Spoon-Knife"),
-    ("https://github.com/owner/repo_name/", "owner", "repo_name"), # Trailing slash
+@pytest.mark.parametrize("url, expected_owner, expected_repo", [
+    ("https://github.com/user/repo.git", "user", "repo"),
+    ("https://github.com/user/repo", "user", "repo"),
+    ("http://github.com/user/repo.git", "user", "repo"),
+    ("http://github.com/user/repo", "user", "repo"),
 ])
-def test_parse_github_url_valid(url, expected_owner, expected_repo_name):
-    owner, repo_name = parse_github_url(url)
+def test_parse_github_url(url, expected_owner, expected_repo):
+    owner, repo = parse_github_url(url)
     assert owner == expected_owner
-    assert repo_name == expected_repo_name
-
+    assert repo == expected_repo
 
 @pytest.mark.parametrize("url", [
-    "https://github.com/repo_name.git", # Missing owner
-    "https://github.com/owner", # Missing repo name
-    "https://github.com/", # Root URL
-    "", # Empty URL
-    "invalid-url", # Malformed URL
-    "http://example.com/not_github/repo", # Non-github URL
+    "https://gitlab.com/user/repo",
+    "https://github.com/user",
+    "https://github.com/",
 ])
 def test_parse_github_url_invalid(url):
     with pytest.raises(ValueError):

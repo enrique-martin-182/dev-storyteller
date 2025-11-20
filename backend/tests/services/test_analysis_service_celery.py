@@ -51,9 +51,9 @@ def mock_connection_manager():
         mock.broadcast = AsyncMock()
         yield mock
 
-def test_clone_and_analyze_repository_success(db_session, mock_repository_analyzer, mock_narrative_generator, mock_connection_manager, mocker):
+def test_clone_and_analyze_repository_success(db_session, mock_repository_analyzer, mock_narrative_generator, mocker):
     # Mockear _broadcast_status_update para evitar llamadas reales y warnings
-    mocker.patch("src.services.analysis_service._broadcast_status_update", new_callable=AsyncMock)
+    mock_broadcast = mocker.patch("src.services.analysis_service._broadcast_status_update", new_callable=AsyncMock)
 
     # Mockear SessionLocal para que devuelva la sesión de prueba
     mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
@@ -93,16 +93,22 @@ def test_clone_and_analyze_repository_success(db_session, mock_repository_analyz
     analysis_result = db_session.query(models.AnalysisResult).filter(models.AnalysisResult.repository_id == repo_id).first()
     assert analysis_result is not None
     assert analysis_result.file_count == 10
+    
+    # Verify that the broadcast function was awaited
+    mock_broadcast.assert_awaited()
+
 
 def test_clone_and_analyze_repository_not_found(db_session, mocker):
     repo_id = 999
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
     mock_logging_warning = mocker.patch("src.services.analysis_service.logging.warning")
-    analysis_service.clone_and_analyze_repository(repo_id, db=db_session)
+    analysis_service.clone_and_analyze_repository(repo_id)
     mock_logging_warning.assert_called_once_with(f"Repository with ID {repo_id} not found.")
 
 def test_clone_and_analyze_repository_exception(db_session, mock_repository_analyzer, mocker):
     mocker.patch("src.services.analysis_service._broadcast_status_update", new_callable=AsyncMock)
     mocker.patch("src.services.analysis_service.GitHubService")
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
     repo = models.Repository(url="https://github.com/test/repo", name="test_repo", owner_id=1, status=AnalysisStatus.PENDING)
     db_session.add(repo)
     db_session.commit()
@@ -114,13 +120,15 @@ def test_clone_and_analyze_repository_exception(db_session, mock_repository_anal
         raise Exception("Test analysis error")
     mock_repository_analyzer.get_repository_analysis = side_effect
 
-    analysis_service.clone_and_analyze_repository(repo_id, db=db_session)
+    analysis_service.clone_and_analyze_repository(repo_id)
 
     db_repo = db_session.query(models.Repository).filter(models.Repository.id == repo_id).first()
     assert db_repo.status == AnalysisStatus.FAILED
-    assert "An unexpected error occurred" in db_repo.summary
+    analysis_result = db_session.query(models.AnalysisResult).filter(models.AnalysisResult.repository_id == repo_id).first()
+    assert "An unexpected error occurred" in analysis_result.summary
 
 def test_generate_narratives_task_success(db_session, mock_narrative_generator, mocker):
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
     repo = models.Repository(url="https://github.com/test/repo", name="test_repo", owner_id=1)
     db_session.add(repo)
     db_session.commit()
@@ -133,7 +141,7 @@ def test_generate_narratives_task_success(db_session, mock_narrative_generator, 
     mock_narrative_generator.generate_narrative.return_value = "New Narrative"
     mock_narrative_generator.generate_recruiter_summary = AsyncMock(return_value="New Summary")
 
-    analysis_service.generate_narratives_task(repo.id, mock_repo_analysis, db=db_session)
+    analysis_service.generate_narratives_task(repo.id, mock_repo_analysis)
 
     db_analysis_result = db_session.query(models.AnalysisResult).filter(models.AnalysisResult.id == analysis_result.id).first()
     assert db_analysis_result.narrative == "New Narrative"
@@ -141,16 +149,18 @@ def test_generate_narratives_task_success(db_session, mock_narrative_generator, 
 
 def test_generate_narratives_task_no_analysis_result(db_session, mock_narrative_generator, mocker):
     repo_id = 1
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
     mock_repo_analysis = {"some_data": "value"}
     mock_logging_warning = mocker.patch("src.services.analysis_service.logging.warning")
 
-    analysis_service.generate_narratives_task(repo_id, mock_repo_analysis, db=db_session)
+    analysis_service.generate_narratives_task(repo_id, mock_repo_analysis)
 
     mock_logging_warning.assert_called_once_with(f"AnalysisResult not found for repository ID {repo_id}. Cannot update narratives.")
     mock_narrative_generator.generate_narrative.assert_not_called()
     mock_narrative_generator.generate_recruiter_summary.assert_not_called()
 
 def test_generate_narratives_task_exception(db_session, mock_narrative_generator, mocker):
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
     repo = models.Repository(url="https://github.com/test/repo", name="test_repo", owner_id=1)
     db_session.add(repo)
     db_session.commit()
@@ -162,6 +172,6 @@ def test_generate_narratives_task_exception(db_session, mock_narrative_generator
     mock_narrative_generator.generate_narrative.side_effect = Exception("Narrative generation error")
     mock_logging_error = mocker.patch("src.services.analysis_service.logging.error")
 
-    analysis_service.generate_narratives_task(repo.id, mock_repo_analysis, db=db_session)
+    analysis_service.generate_narratives_task(repo.id, mock_repo_analysis)
 
     mock_logging_error.assert_called_once()

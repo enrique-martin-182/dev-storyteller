@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 8000
 
 # Run the application using uvicorn
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/bash", "-c", "python -c 'from src.db.database import Base, engine; Base.metadata.create_all(bind=engine)' && uvicorn src.main:app --host 0.0.0.0 --port 8000"]

@@ -32,7 +32,9 @@ function AnalysisResults() {
               <p><strong>Open Issues:</strong> {latestResult.open_issues_count}</p>
               <p><strong>Open Pull Requests:</strong> {latestResult.open_pull_requests_count}</p>
               <p><strong>Contributors:</strong> {latestResult.contributors ? latestResult.contributors.join(', ') : 'N/A'}</p>
-              <LanguageDistributionChart languages={latestResult.languages} />
+              <div style={{ width: '100%', height: 300 }}>
+                <LanguageDistributionChart languages={latestResult.languages} />
+              </div>
               <p>Analyzed on: {new Date(latestResult.created_at).toLocaleString()}</p>
             </div>
           )}

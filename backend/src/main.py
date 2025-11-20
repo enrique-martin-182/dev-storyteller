@@ -1,11 +1,13 @@
 import os
 from contextlib import asynccontextmanager
 import logging
+from dotenv import load_dotenv # Añadida esta línea
 
 from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+load_dotenv() # Llamada a load_dotenv()
 from src.api.v1 import api_router, schemas
 from src.api.v1.connection_manager import manager
 from src.core.security import get_current_websocket_user

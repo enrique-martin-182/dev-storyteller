@@ -1,29 +1,33 @@
-from unittest.mock import MagicMock, AsyncMock
 import os
 import tempfile
-from datetime import timedelta
-from dotenv import load_dotenv
+from datetime import datetime # <-- Añadido
+from dotenv import load_dotenv # Importar load_dotenv
 import types # Importar el módulo types
+from unittest.mock import MagicMock, AsyncMock # <-- Movida esta línea
+
+# Cargar variables de entorno y configurar para testing al principio
+load_dotenv()
+os.environ["ENVIRONMENT"] = "testing"
 
 import pytest
 from fastapi.testclient import TestClient
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-
-# Define the path to the .env file relative to this conftest.py
-# conftest.py is in tests/, .env is in backend/
-dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-load_dotenv(dotenv_path=dotenv_path)
-
+from pydantic import HttpUrl # <-- Añadido
 
 from src.api.v1 import schemas
 from src.celery_app import celery_app
 from src.core.security import get_current_user, TokenData
+from src.db import crud, models # Añadido 'crud'
 from src.db.database import Base, get_db, init_db
 from src.main import app
 from src.services import repository_service # Import the real service
 
+@pytest.fixture(autouse=True)
+def mock_celery_send_task(mocker):
+    """Mocks celery_app.send_task to prevent actual Celery task dispatch during tests."""
+    mocker.patch("src.celery_app.celery_app.send_task", return_value=MagicMock(id="mock_task_id", status="SUCCESS"))
 
 # Explicitly rebuild Pydantic models to resolve forward references in tests
 schemas.Repository.model_rebuild()
@@ -31,6 +35,11 @@ schemas.AnalysisResult.model_rebuild()
 
 # Set Celery to always run tasks eagerly (synchronously) during tests
 celery_app.conf.task_always_eager = True
+
+
+
+
+# Explicitly rebuild Pydantic models to resolve forward references in tests
 
 
 @pytest.fixture(name="db_session")
@@ -56,23 +65,8 @@ def db_session_fixture():
         os.unlink(db_path)
 
 
-@pytest.fixture
-def mock_repository_service():
-    """Fixture to mock the entire repository_service module."""
-    mock = MagicMock()
-    # Mock individual functions that are accessed directly by the API endpoints
-    mock.get_repository_by_url = MagicMock()
-    mock.create_repository = MagicMock()
-    mock.get_repositories_by_owner = MagicMock()
-    mock.get_repository = MagicMock()
-    mock.get_analysis_results_for_repository = MagicMock()
-    mock.get_analysis_narrative = MagicMock()
-    # Note: get_analysis_result is a crud function, not in repository_service
-    return mock
-
-
 @pytest.fixture(name="client")
-def client_fixture(db_session: Session, mock_repository_service: MagicMock):
+def client_fixture(db_session: Session):
     """
     Fixture that provides a TestClient instance for each test,
     with dependencies overridden for testing, including authentication.
@@ -91,15 +85,6 @@ def client_fixture(db_session: Session, mock_repository_service: MagicMock):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
     
-    # Override specific functions from repository_service
-    app.dependency_overrides[repository_service.get_repository_by_url] = mock_repository_service.get_repository_by_url
-    app.dependency_overrides[repository_service.create_repository] = mock_repository_service.create_repository
-    app.dependency_overrides[repository_service.get_repositories_by_owner] = mock_repository_service.get_repositories_by_owner
-    app.dependency_overrides[repository_service.get_repository] = mock_repository_service.get_repository
-    app.dependency_overrides[repository_service.get_analysis_results_for_repository] = mock_repository_service.get_analysis_results_for_repository
-    app.dependency_overrides[repository_service.get_analysis_narrative] = mock_repository_service.get_analysis_narrative
-
-
     with TestClient(app) as c:
         yield c
 
@@ -131,14 +116,12 @@ def _mock_redis_client(mocker):
 
 
 @pytest.fixture(autouse=True)
-def mock_asyncio_run_global(mocker):
-    """Globally mocks asyncio.run to return a simple MagicMock,
-    allowing synchronous tests to proceed without actual async execution."""
-    def side_effect_for_asyncio_run(coro):
-        # We don't try to "resolve" the awaitable here.
-        # We just return a MagicMock, simulating that asyncio.run completed successfully.
-        return MagicMock() 
+def mock_session_local(mocker, db_session):
+    """
+    Mocks SessionLocal in analysis_service to return the test db_session.
+    This prevents Celery tasks from trying to connect to a real database.
+    """
+    mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
 
-    mocker.patch("asyncio.run", side_effect=side_effect_for_asyncio_run)
 
 

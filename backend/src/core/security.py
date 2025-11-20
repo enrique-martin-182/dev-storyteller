@@ -17,7 +17,13 @@ load_dotenv()
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable not set.")
+    # Este bloque se añade para permitir que los tests se ejecuten sin requerir una SECRET_KEY real
+    # en el entorno de CI/CD o desarrollo local donde no se inyecta directamente.
+    # En un entorno de producción, la SECRET_KEY SIEMPRE debe estar configurada.
+    if os.getenv("ENVIRONMENT") == "testing":
+        SECRET_KEY = "test-secret-key-for-testing"
+    else:
+        raise ValueError("SECRET_KEY environment variable not set.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Adjust as needed
 
