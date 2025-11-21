@@ -1,13 +1,28 @@
 
+import asyncio
 import unittest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy.orm import Session
 
 from src.core.enums import AnalysisStatus
-from src.services import analysis_service
 from src.db import models
-from src.api.v1 import schemas
+from src.services import analysis_service
+
+
+class TestError(Exception):
+    pass
+
+# Define a constant for the mock analysis data
+MOCK_ANALYSIS_DICT = {
+    "file_count": 10,
+    "commit_count": 50,
+    "languages": {"Python": 100},
+    "open_issues_count": 5,
+    "open_pull_requests_count": 2,
+    "contributors": [{"login": "testuser", "contributions": 10}],
+    "tech_stack": ["Python"],
+}
 
 
 class TestAnalysisService(unittest.TestCase):
@@ -25,25 +40,31 @@ class TestAnalysisService(unittest.TestCase):
         mock_github_service,
         mock_asyncio_run,
         mock_crud,
-        mock_session_local,
     ):
         # Arrange
+        mock_session_local = MagicMock() # Create mock here
         mock_db = MagicMock(spec=Session)
         mock_session_local.return_value = mock_db
         mock_repo = MagicMock(spec=models.Repository)
         mock_repo.id = 1
         mock_repo.url = "https://github.com/owner/repo"
         mock_crud.get_repository.return_value = mock_repo
-        mock_analyzer_instance = mock_repository_analyzer.return_value
-        mock_asyncio_run.return_value = {
-            "file_count": 10,
-            "commit_count": 50,
-            "languages": {"Python": 100},
-            "open_issues_count": 5,
-            "open_pull_requests_count": 2,
-            "contributors": [{"login": "testuser", "contributions": 10}],
-            "tech_stack": ["Python"],
-        }
+
+
+        # Define a side_effect function to handle different coroutines
+        def asyncio_run_side_effect(coro):
+            # The string representation of the coroutine includes its name
+            if "get_repository_analysis" in str(coro):
+                return MOCK_ANALYSIS_DICT
+            elif "_broadcast_status_update" in str(coro):
+                # Actually run the broadcast coroutine to prevent warnings
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(coro)
+                loop.close()
+                return None
+            return None # Default return for any other coroutine
+
+        mock_asyncio_run.side_effect = asyncio_run_side_effect
 
         # Act
         analysis_service.clone_and_analyze_repository(1)
@@ -51,11 +72,11 @@ class TestAnalysisService(unittest.TestCase):
         # Assert
         mock_crud.get_repository.assert_called_once_with(mock_db, 1)
         self.assertEqual(mock_repo.status, AnalysisStatus.COMPLETED)
-        mock_db.commit.call_count == 2
-        mock_asyncio_run.call_count == 2
+        self.assertEqual(mock_db.commit.call_count, 2)  # noqa: PLR2004
+        self.assertEqual(mock_asyncio_run.call_count, 2)  # noqa: PLR2004
         mock_github_service.assert_called_once()
         mock_repository_analyzer.assert_called_once_with(mock_github_service.return_value)
-        mock_generate_narratives_task.delay.assert_called_once_with(1, ANY)
+        mock_generate_narratives_task.delay.assert_called_once_with(1, MOCK_ANALYSIS_DICT)
         mock_crud.create_analysis_result.assert_called_once()
 
     @patch("src.services.analysis_service.SessionLocal")
@@ -83,10 +104,10 @@ class TestAnalysisService(unittest.TestCase):
         # Arrange
         mock_db = MagicMock(spec=Session)
         mock_session_local.return_value = mock_db
-        mock_crud.get_repository.side_effect = Exception("Test Exception")
+        mock_crud.get_repository.side_effect = TestError("Test Exception")
 
         # Act & Assert
-        with self.assertRaises(Exception):
+        with self.assertRaises(TestError):
             analysis_service.clone_and_analyze_repository(1)
 
 
@@ -123,7 +144,7 @@ class TestAnalysisService(unittest.TestCase):
     @patch("src.services.analysis_service.SessionLocal")
     @patch("src.services.analysis_service.NarrativeGenerator")
     def test_generate_narratives_task_analysis_not_found(
-        self, mock_narrative_generator, mock_session_local
+        self, mock_session_local
     ):
         # Arrange
         mock_db = MagicMock(spec=Session)
@@ -142,7 +163,7 @@ class TestAnalysisService(unittest.TestCase):
     @patch("src.services.analysis_service.SessionLocal")
     @patch("src.services.analysis_service.NarrativeGenerator")
     def test_generate_narratives_task_exception(
-        self, mock_narrative_generator, mock_session_local
+        self, mock_session_local
     ):
         # Arrange
         mock_db = MagicMock(spec=Session)

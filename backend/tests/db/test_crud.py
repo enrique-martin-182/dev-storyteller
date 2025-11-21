@@ -1,9 +1,9 @@
-import pytest
 from sqlalchemy.orm import Session
 
-from src.db import crud, models
 from src.api.v1 import schemas
 from src.core.enums import AnalysisStatus
+from src.db import crud, models
+
 
 def test_get_user_by_username(db_session: Session):
     # Create a user to test with
@@ -62,7 +62,7 @@ def test_get_repositories(db_session: Session):
     crud.create_repository(db_session, url="https://github.com/test/repo2", name="test/repo2", owner_id=user.id)
 
     repositories = crud.get_repositories(db_session)
-    assert len(repositories) == 2
+    assert len(repositories) == 2  # noqa: PLR2004
 
 
 def test_get_repositories_by_owner(db_session: Session):
@@ -161,7 +161,7 @@ def test_get_analysis_results_for_repository(db_session: Session):
 
     # Retrieve the analysis results for the repository
     analysis_results = crud.get_analysis_results_for_repository(db_session, repository_id=repo.id)
-    assert len(analysis_results) == 2
+    assert len(analysis_results) == 2  # noqa: PLR2004
 
 
 def test_update_repository_status(db_session: Session):

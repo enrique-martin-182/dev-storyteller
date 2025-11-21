@@ -1,33 +1,40 @@
 import os
 import tempfile
-from datetime import datetime # <-- Añadido
-from dotenv import load_dotenv # Importar load_dotenv
-import types # Importar el módulo types
-from unittest.mock import MagicMock, AsyncMock # <-- Movida esta línea
-
-# Cargar variables de entorno y configurar para testing al principio
-load_dotenv()
-os.environ["ENVIRONMENT"] = "testing"
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from pydantic import HttpUrl # <-- Añadido
 
-from src.api.v1 import schemas
-from src.celery_app import celery_app
-from src.core.security import get_current_user, TokenData
-from src.db import crud, models # Añadido 'crud'
-from src.db.database import Base, get_db, init_db
-from src.main import app
-from src.services import repository_service # Import the real service
+# Set environment variables at the very top
+os.environ["ENVIRONMENT"] = "testing"
+os.environ["SECRET_KEY"] = "super-secret-test-key"
+
+# Patch load_dotenv to prevent actual .env file loading during tests
+with patch("src.main.load_dotenv", lambda: None):
+    # These imports are now safe as environment variables are set
+    from src.api.v1 import schemas
+    from src.celery_app import celery_app
+    from src.core.security import TokenData, get_current_user, get_current_websocket_user
+    from src.db.database import get_db, init_db
+    from src.main import app
+    from src.services import repository_service  # Import the real service
+
 
 @pytest.fixture(autouse=True)
 def mock_celery_send_task(mocker):
-    """Mocks celery_app.send_task to prevent actual Celery task dispatch during tests."""
-    mocker.patch("src.celery_app.celery_app.send_task", return_value=MagicMock(id="mock_task_id", status="SUCCESS"))
+    """
+    Mocks clone_and_analyze_repository.delay to prevent actual Celery task dispatch during tests
+    and returns the mock object for assertions.
+    """
+    mock_send_task = mocker.patch(
+        "src.services.analysis_service.clone_and_analyze_repository.delay",
+        return_value=MagicMock(id="mock_task_id", status="SUCCESS"),
+    )
+    return mock_send_task
+
 
 # Explicitly rebuild Pydantic models to resolve forward references in tests
 schemas.Repository.model_rebuild()
@@ -35,8 +42,6 @@ schemas.AnalysisResult.model_rebuild()
 
 # Set Celery to always run tasks eagerly (synchronously) during tests
 celery_app.conf.task_always_eager = True
-
-
 
 
 # Explicitly rebuild Pydantic models to resolve forward references in tests
@@ -65,26 +70,46 @@ def db_session_fixture():
         os.unlink(db_path)
 
 
+@pytest.fixture(autouse=True)
+def mock_repository_service(mocker):
+    """
+    Fixture to mock the entire RepositoryService module, returning a MagicMock instance
+    that can be configured in individual tests. This effectively replaces the imported
+    `repository_service` object in `src.api.v1.endpoints.repositories`.
+    """
+    mock_service_instance = MagicMock(spec=repository_service.RepositoryService)
+    # Patch the imported repository_service object in the repositories endpoint module
+    mocker.patch(
+        "src.api.v1.endpoints.repositories.repository_service", new=mock_service_instance
+    )
+    return mock_service_instance
+
+
 @pytest.fixture(name="client")
-def client_fixture(db_session: Session):
+def client_fixture(db_session: Session, mocker, mock_manager):
     """
     Fixture that provides a TestClient instance for each test,
     with dependencies overridden for testing, including authentication.
     """
-    # Re-import app here to ensure it picks up all routers and configurations
-    from src.main import app
+    mocker.patch("src.api.v1.endpoints.repositories.manager", new=mock_manager)
 
     def override_get_db():
         yield db_session
 
     def override_get_current_user():
         # Bypasses the actual token validation and returns a dummy user
-        # Ensure id is an integer to match owner_id expectations
-        return TokenData(username="testuser", id=1)
-    
+        return TokenData(username="testuser", id=1)  # INTEGER ID
+
+    def override_get_current_websocket_user_dep():
+        # Directly return a dummy user object for websocket authentication
+        return TokenData(username="testuser_ws", id=2)  # INTEGER ID
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
-    
+    app.dependency_overrides[
+        get_current_websocket_user
+    ] = override_get_current_websocket_user_dep
+
     with TestClient(app) as c:
         yield c
 
@@ -98,16 +123,14 @@ def mock_current_user():
     user.username = "testuser"
     return user
 
-@pytest.fixture
-def mock_current_websocket_user():
-    user = MagicMock(spec=TokenData)
-    user.id = "testuser_ws"
-    user.username = "testuser_ws"
-    return user
 
 @pytest.fixture
-def mock_connection_manager():
-    return MagicMock()
+def mock_manager():
+    manager_mock = MagicMock()
+    manager_mock.connect = AsyncMock(return_value=True)
+    manager_mock.disconnect = MagicMock()
+    return manager_mock
+
 
 @pytest.fixture
 def _mock_redis_client(mocker):
@@ -122,6 +145,3 @@ def mock_session_local(mocker, db_session):
     This prevents Celery tasks from trying to connect to a real database.
     """
     mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
-
-
-

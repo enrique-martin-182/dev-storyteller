@@ -3,9 +3,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from src.core.enums import AnalysisStatus
 from src.db.database import Base
 from src.db.models import AnalysisResult, Repository, User
-from src.core.enums import AnalysisStatus
 
 # Setup in-memory SQLite for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -94,12 +94,12 @@ def test_analysis_result_model(session):
     assert analysis_result.repository_id == repository.id
     assert analysis_result.summary == "Test summary"
     assert analysis_result.narrative == "Test narrative"
-    assert analysis_result.open_issues_count == 5
-    assert analysis_result.open_pull_requests_count == 2
+    assert analysis_result.open_issues_count == 5  # noqa: PLR2004
+    assert analysis_result.open_pull_requests_count == 2  # noqa: PLR2004
     assert analysis_result.contributors == [{"name": "test", "contributions": 10}]
-    assert analysis_result.file_count == 100
-    assert analysis_result.total_lines == 1000
-    assert analysis_result.commit_count == 50
+    assert analysis_result.file_count == 100  # noqa: PLR2004
+    assert analysis_result.total_lines == 1000  # noqa: PLR2004
+    assert analysis_result.commit_count == 50  # noqa: PLR2004
     assert analysis_result.languages == {"Python": 100}
     assert analysis_result.tech_stack == ["Python", "FastAPI"]
     assert analysis_result.report_url == "http://example.com/report"

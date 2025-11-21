@@ -11,9 +11,16 @@ from src.services.repository_service import RepositoryService
 class TestRepositoryService(unittest.TestCase):
 
     def setUp(self):
+        # We need to access the mocker fixture, but setUp is not a fixture.
+        # So we will create our own mocks here using patch.
         self.mock_crud = MagicMock()
         self.mock_analysis_service = MagicMock()
+
         self.repository_service = RepositoryService(crud_module=self.mock_crud, analysis_service_module=self.mock_analysis_service)
+
+    def tearDown(self):
+        pass
+
 
     def test_extract_repo_name_from_url(self):
         # Test with a valid URL

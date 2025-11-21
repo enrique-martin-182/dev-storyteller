@@ -51,13 +51,13 @@ def mock_connection_manager():
         mock.broadcast = AsyncMock()
         yield mock
 
-def test_clone_and_analyze_repository_success(db_session, mock_repository_analyzer, mock_narrative_generator, mocker):
+def test_clone_and_analyze_repository_success(db_session, mock_repository_analyzer, mocker):
     # Mockear _broadcast_status_update para evitar llamadas reales y warnings
     mock_broadcast = mocker.patch("src.services.analysis_service._broadcast_status_update", new_callable=AsyncMock)
 
     # Mockear SessionLocal para que devuelva la sesión de prueba
     mocker.patch("src.services.analysis_service.SessionLocal", return_value=db_session)
-    
+
     # Mock GitHubService to avoid real instantiation
     mocker.patch("src.services.analysis_service.GitHubService")
 
@@ -92,8 +92,8 @@ def test_clone_and_analyze_repository_success(db_session, mock_repository_analyz
     mock_generate_narratives_delay.assert_called_once_with(repo_id, mock_repo_analysis)
     analysis_result = db_session.query(models.AnalysisResult).filter(models.AnalysisResult.repository_id == repo_id).first()
     assert analysis_result is not None
-    assert analysis_result.file_count == 10
-    
+    assert analysis_result.file_count == 10  # noqa: PLR2004
+
     # Verify that the broadcast function was awaited
     mock_broadcast.assert_awaited()
 
@@ -116,7 +116,7 @@ def test_clone_and_analyze_repository_exception(db_session, mock_repository_anal
     repo_id = repo.id
 
     # Mockear la corrutina para que lance una excepción
-    async def side_effect(*args, **kwargs):
+    async def side_effect(*_args, **_kwargs):
         raise Exception("Test analysis error")
     mock_repository_analyzer.get_repository_analysis = side_effect
 

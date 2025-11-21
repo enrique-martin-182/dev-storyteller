@@ -163,14 +163,14 @@ class RepositoryAnalyzer:
                     except json.JSONDecodeError:
                         pass
                 elif file_name == "pyproject.toml":
+                    import toml
                     try:
-                        import toml
                         pyproject = toml.loads(content)
                         for dep_name in pyproject.get("tool", {}).get("poetry", {}).get("dependencies", {}):
                             tech_stack.add(dep_name)
                         for dep_name in pyproject.get("tool", {}).get("poetry", {}).get("dev-dependencies", {}):
                             tech_stack.add(dep_name)
-                    except (ImportError, toml.TomlDecodeError):
+                    except toml.TomlDecodeError:
                         pass
                 elif file_name == "requirements.txt":
                     for line in content.splitlines():

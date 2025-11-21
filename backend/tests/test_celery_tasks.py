@@ -1,5 +1,4 @@
 from unittest.mock import AsyncMock, MagicMock, patch
-import types # Importar el módulo types
 
 import pytest
 from sqlalchemy.orm import Session
@@ -44,7 +43,7 @@ def mock_github_service():
 
 
 @pytest.fixture
-def mock_repository_analyzer(mock_github_service):
+def mock_repository_analyzer(_mock_github_service):
     """Mock RepositoryAnalyzer."""
     with patch(
         "src.services.analysis_service.RepositoryAnalyzer", autospec=True
@@ -74,7 +73,7 @@ def mock_narrative_generator():
     ) as mock:
         mock_instance = mock.return_value
         mock_instance.generate_narrative.return_value = "Comprehensive narrative"
-        mock_instance.generate_recruiter_summary = AsyncMock(
+        mock_instance.generate_recruiter_summary = MagicMock(
             return_value="Recruiter summary"
         )
         yield mock_instance
@@ -127,14 +126,7 @@ class TestCeleryTasks:
         mock_crud.create_analysis_result.return_value = analysis_result
 
         with patch("src.services.analysis_service.generate_narratives_task.delay") as mock_delay:
-            with patch("src.services.analysis_service.asyncio.run") as mock_asyncio_run:
-                # Mock _broadcast_status_update
-                mock_asyncio_run.side_effect = [
-                    mock_broadcast_status_update.return_value, # For the IN_PROGRESS status
-                    mock_repository_analyzer.get_repository_analysis.return_value, # For the repository analysis
-                    mock_broadcast_status_update.return_value # For the COMPLETED status
-                ]
-                clone_and_analyze_repository(sample_repository.id, db=mock_db_session)
+            clone_and_analyze_repository(sample_repository.id, db=mock_db_session)
 
         mock_crud.get_repository.assert_called_with(mock_db_session, sample_repository.id)
         mock_repository_analyzer.get_repository_analysis.assert_called_once_with(sample_repository.url)
@@ -152,22 +144,41 @@ class TestCeleryTasks:
         mock_broadcast_status_update,
         sample_repository,
     ):
+        # Arrange
         mock_crud.get_repository.return_value = sample_repository
+
+        # Configure the mock analyzer to raise an exception when get_repository_analysis is called
         mock_repository_analyzer.get_repository_analysis.side_effect = Exception("GitHub API error")
 
-        with patch("src.services.analysis_service.asyncio.run") as mock_asyncio_run:
-            mock_asyncio_run.side_effect = [
-                mock_broadcast_status_update.return_value, # For the IN_PROGRESS status
-                mock_repository_analyzer.get_repository_analysis.side_effect, # This will raise the exception
-                mock_broadcast_status_update.return_value # For the FAILED status
-            ]
-            clone_and_analyze_repository(sample_repository.id, db=mock_db_session)
+        # Mock the query to return no existing analysis result
+        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+
+        # Act
+        # The exception is caught inside, so we don't need a with pytest.raises
+        clone_and_analyze_repository(sample_repository.id, db=mock_db_session)
+
+        # Assert
+        # Verify repository status is updated to FAILED
         mock_crud.get_repository.assert_called_with(mock_db_session, sample_repository.id)
-        mock_repository_analyzer.get_repository_analysis.assert_called_once_with(sample_repository.url)
+        assert sample_repository.status == AnalysisStatus.FAILED
+
+        # Verify status updates were broadcast
         mock_broadcast_status_update.assert_any_call(sample_repository.id, AnalysisStatus.IN_PROGRESS)
         mock_broadcast_status_update.assert_any_call(sample_repository.id, AnalysisStatus.FAILED)
-        assert sample_repository.status == AnalysisStatus.FAILED
-        assert "GitHub API error" in sample_repository.summary
+
+        # Verify that an error summary was set on the analysis result
+        added_object = None
+        for call in mock_db_session.add.call_args_list:
+            args, _ = call
+            if isinstance(args[0], models.AnalysisResult):
+                added_object = args[0]
+                break
+
+        assert added_object is not None, "AnalysisResult was not created and added to the session"
+        assert "An unexpected error occurred during analysis: GitHub API error" in added_object.summary
+
+        # Verify the analyzer was called
+        mock_repository_analyzer.get_repository_analysis.assert_called_once_with(sample_repository.url)
 
     def test_clone_and_analyze_repository_not_found(
         self, mock_db_session, mock_crud, mock_broadcast_status_update
@@ -215,9 +226,12 @@ class TestCeleryTasks:
         mock_narrative_generator.generate_narrative.side_effect = Exception("LLM error")
         repo_analysis_data = {"file_structure": [], "commit_history": []}
 
-        with patch("src.services.analysis_service.logging.error") as mock_logging_error:
-            generate_narratives_task(1, repo_analysis_data, db=mock_db_session)
-            mock_logging_error.assert_called_once()
+        with patch("src.services.analysis_service.logging.error") as mock_logging_error, \
+             patch("src.services.analysis_service.asyncio.run") as mock_asyncio_run:
+                # Mock the behavior of asyncio.run if it's called
+                mock_asyncio_run.return_value = None
+                generate_narratives_task(1, repo_analysis_data, db=mock_db_session)
+                mock_logging_error.assert_called_once()
 
     def test_generate_narratives_task_analysis_result_not_found(
         self,
@@ -227,7 +241,10 @@ class TestCeleryTasks:
         mock_db_session.query.return_value.filter.return_value.first.return_value = None
         repo_analysis_data = {"file_structure": [], "commit_history": []}
 
-        with patch("src.services.analysis_service.logging.warning") as mock_logging_warning:
-            generate_narratives_task(999, repo_analysis_data, db=mock_db_session)
-            mock_logging_warning.assert_called_once()
+        with patch("src.services.analysis_service.logging.warning") as mock_logging_warning, \
+             patch("src.services.analysis_service.asyncio.run") as mock_asyncio_run:
+                # Mock the behavior of asyncio.run if it's called
+                mock_asyncio_run.return_value = None
+                generate_narratives_task(999, repo_analysis_data, db=mock_db_session)
+                mock_logging_warning.assert_called_once()
         mock_narrative_generator.generate_narrative.assert_not_called()

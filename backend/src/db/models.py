@@ -36,6 +36,7 @@ class Repository(Base):
     name = Column(String, nullable=False)
     owner_id = Column(Integer, ForeignKey("users.id"))
     status = Column(Enum(AnalysisStatus), nullable=False, default=AnalysisStatus.PENDING)
+    summary = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

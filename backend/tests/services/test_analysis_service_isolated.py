@@ -1,6 +1,5 @@
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
 
 import pytest
 from sqlalchemy.orm import Session

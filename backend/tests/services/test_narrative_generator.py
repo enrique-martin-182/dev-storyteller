@@ -1,7 +1,9 @@
-import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
 import asyncio
-from src.services.narrative_generator import NarrativeGenerator, MAX_SUMMARY_LENGTH
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from src.services.narrative_generator import MAX_SUMMARY_LENGTH, NarrativeGenerator
+
 
 class TestNarrativeGenerator(unittest.TestCase):
 
@@ -26,7 +28,7 @@ class TestNarrativeGenerator(unittest.TestCase):
 
         generator = NarrativeGenerator()
         narrative = generator.generate_narrative({})
-        
+
         self.assertEqual(narrative, "Narrative")
 
     @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
@@ -36,7 +38,7 @@ class TestNarrativeGenerator(unittest.TestCase):
 
         generator = NarrativeGenerator()
         narrative = generator.generate_narrative({})
-        
+
         self.assertEqual(narrative, "Error generating narrative.")
 
     @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')
@@ -47,7 +49,7 @@ class TestNarrativeGenerator(unittest.TestCase):
         mock_model.return_value.generate_content_async = AsyncMock(return_value=mock_response)
 
         generator = NarrativeGenerator()
-        
+
         async def run_test():
             summary = await generator.generate_recruiter_summary({})
             self.assertEqual(summary, "Summary")
@@ -64,7 +66,7 @@ class TestNarrativeGenerator(unittest.TestCase):
         async def run_test():
             summary = await generator.generate_recruiter_summary({})
             self.assertEqual(summary, "Error generating recruiter summary.")
-        
+
         asyncio.run(run_test())
 
     @patch('src.services.narrative_generator.GEMINI_API_KEY', 'test_api_key')

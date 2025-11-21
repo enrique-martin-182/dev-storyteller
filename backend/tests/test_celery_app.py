@@ -1,7 +1,4 @@
-import os
-from unittest.mock import patch, MagicMock
-import sys # Keep sys import for potential future use or if other parts need it
-
+from unittest.mock import MagicMock
 
 import pytest
 from celery import Celery
@@ -18,19 +15,19 @@ def clean_env_celery(monkeypatch):
     monkeypatch.delenv("CELERY_RESULT_BACKEND_URL", raising=False)
 
 
-def test_celery_app_instance(clean_env_celery):
+def test_celery_app_instance():
     celery_app = celery_app_module.get_celery_app()
     assert isinstance(celery_app, Celery)
     assert celery_app.main == 'dev_storyteller'
 
 
-def test_celery_broker_url_default(clean_env_celery):
+def test_celery_broker_url_default():
     celery_app = celery_app_module.get_celery_app()
     assert celery_app.conf.broker_url == 'redis://localhost:6379/0'
     assert celery_app.conf.result_backend == 'redis://localhost:6379/0'
 
 
-def test_celery_broker_url_from_env(monkeypatch, clean_env_celery, mocker):
+def test_celery_broker_url_from_env(monkeypatch, mocker):
     test_broker_url = "redis://test_broker:1234/1"
     test_backend_url = "redis://test_backend:5678/2"
     monkeypatch.setenv("CELERY_BROKER_URL", test_broker_url)
@@ -65,7 +62,7 @@ def test_celery_broker_url_from_env(monkeypatch, clean_env_celery, mocker):
     assert mock_celery_instance.conf.broker_url == test_broker_url
 
 
-def test_celery_app_config(clean_env_celery):
+def test_celery_app_config():
     celery_app = celery_app_module.get_celery_app()
     assert celery_app.conf.task_track_started is True
     assert celery_app.conf.task_serializer == 'json'
@@ -75,6 +72,6 @@ def test_celery_app_config(clean_env_celery):
     assert celery_app.conf.enable_utc is True
 
 
-def test_celery_app_includes_tasks(clean_env_celery):
+def test_celery_app_includes_tasks():
     celery_app = celery_app_module.get_celery_app()
     assert 'src.services.analysis_service' in celery_app.conf.include

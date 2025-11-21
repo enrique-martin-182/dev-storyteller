@@ -18,6 +18,8 @@ from src.core.security import TokenData, get_current_user, get_current_websocket
 from src.db import crud
 from src.db.database import get_db
 from src.services import repository_service  # Import the new service
+from src.celery_app import celery_app # Import celery_app
+from src.services.analysis_service import clone_and_analyze_repository # Import the Celery task
 
 router = APIRouter()
 
@@ -59,6 +61,10 @@ async def create_repository_analysis_request(
     # Create a new repository record in the database
     db_repo = repository_service.create_repository(db=db, repo=repo, owner_id=current_user.id)
     response.status_code = status.HTTP_201_CREATED # Explicitly set 201 for new creation
+    
+    # Trigger Celery task for analysis
+    clone_and_analyze_repository.delay(db_repo.id)
+
     return db_repo
 
 

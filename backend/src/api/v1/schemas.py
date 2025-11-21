@@ -51,6 +51,7 @@ class Repository(BaseModel):
     id: int
     name: str
     url: HttpUrl # Added url field
+    owner_id: int # Add owner_id
     status: AnalysisStatus
     created_at: datetime
     updated_at: datetime | None = None

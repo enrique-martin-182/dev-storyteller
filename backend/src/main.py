@@ -69,16 +69,16 @@ async def read_root():
     return {"status": "ok", "message": "Welcome to Dev Storyteller API!"}
 
 
-@app.websocket("/api/v1/ws/status")
-async def websocket_endpoint(websocket: WebSocket, current_user: "TokenData" = Depends(get_current_websocket_user)):
-    await manager.connect(websocket, current_user.id)
-    try:
-        while True:
-            # We are just receiving updates from the server, so we don't need to process incoming messages.
-            # This loop keeps the connection alive.
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(current_user.id)
+# @app.websocket("/api/v1/ws/status")
+# async def websocket_endpoint(websocket: WebSocket, current_user: "TokenData" = Depends(get_current_websocket_user)):
+#     await manager.connect(websocket, current_user.id)
+#     try:
+#         while True:
+#             # We are just receiving updates from the server, so we don't need to process incoming messages.
+#             # This loop keeps the connection alive.
+#             await websocket.receive_text()
+#     except WebSocketDisconnect:
+#         manager.disconnect(current_user.id)
 
 
 # In a real application, you would import and include your API routers here
